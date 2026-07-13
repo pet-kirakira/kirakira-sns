@@ -2,16 +2,19 @@
 """X (Twitter) 管理 CLI ツール"""
 
 import argparse
+import dataclasses
+import json
 import sys
 
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 from rich.prompt import Prompt
 
 from src.client import get_client
 from src.post import post_tweet
 from src.followers import get_me, get_followers
-from src.security import run_all_checks
+from src.security import apply_fixes, compute_score, run_all_checks
 
 console = Console()
 
@@ -65,10 +68,31 @@ def cmd_followers(args: argparse.Namespace) -> None:
 
 
 def cmd_security(args: argparse.Namespace) -> None:
+    if args.fix:
+        fixed = apply_fixes()
+        if not args.json:
+            if fixed:
+                for msg in fixed:
+                    console.print(f"[green]自動修復:[/green] {msg}")
+            else:
+                console.print("[green]自動修復:[/green] 修復が必要な項目はありませんでした。")
+            console.print()
+
+    if args.json:
+        results = run_all_checks(include_history=args.history)
+        score, rank = compute_score(results)
+        report = {
+            "score": score,
+            "rank": rank,
+            "results": [dataclasses.asdict(r) for r in results],
+        }
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        sys.exit(0 if all(r.ok for r in results) else 1)
+
     console.print("[bold]セキュリティチェックを実行します...[/bold]\n")
 
     with console.status("チェック中..."):
-        results = run_all_checks()
+        results = run_all_checks(include_history=args.history)
 
     table = Table(title="セキュリティチェック結果")
     table.add_column("結果", justify="center", no_wrap=True)
@@ -86,6 +110,16 @@ def cmd_security(args: argparse.Namespace) -> None:
         if r.ok and r.advice:
             console.print(f"[yellow]ヒント:[/yellow] {r.advice}")
 
+    score, rank = compute_score(results)
+    rank_color = {"S": "bright_green", "A": "green", "B": "yellow", "C": "red"}[rank]
+    console.print(
+        Panel(
+            f"セキュリティスコア: [bold]{score} 点[/bold] / 100 点　"
+            f"ランク [{rank_color} bold]{rank}[/{rank_color} bold]",
+            title="診断結果",
+        )
+    )
+
     if problems:
         console.print(f"\n[red]{len(problems)} 件の問題が見つかりました。[/red]\n")
         for r in problems:
@@ -93,6 +127,7 @@ def cmd_security(args: argparse.Namespace) -> None:
             console.print(f"  [yellow]直し方:[/yellow] {r.advice}")
             for detail in r.details[:10]:
                 console.print(f"  - {detail}")
+        console.print("\n[yellow]ヒント:[/yellow] kirakira security --fix で直せる項目は自動修復できます。")
         sys.exit(1)
 
     console.print("\n[green]問題は見つかりませんでした！このまま安心して使えます。[/green]")
@@ -116,7 +151,16 @@ def main() -> None:
     )
 
     # security
-    subparsers.add_parser("security", help="セキュリティチェックを実行する")
+    security_parser = subparsers.add_parser("security", help="セキュリティチェックを実行する")
+    security_parser.add_argument(
+        "--fix", action="store_true", help="直せる問題を自動修復する（.gitignore 追記、.env の権限変更）"
+    )
+    security_parser.add_argument(
+        "--history", action="store_true", help="過去のコミット履歴もスキャンする"
+    )
+    security_parser.add_argument(
+        "--json", action="store_true", help="結果を JSON 形式で出力する（レポート連携用）"
+    )
 
     args = parser.parse_args()
 
