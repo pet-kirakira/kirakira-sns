@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kirakira-sns"
+version = "0.1.0"
+description = "X (Twitter) 管理 CLI ツール（セキュリティチェック付き）"
+requires-python = ">=3.9"
+dependencies = [
+    "tweepy>=4.14.0",
+    "python-dotenv>=1.0.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+# pip install ".[security]" で脆弱性チェックも有効になる
+security = ["pip-audit>=2.7.0"]
+
+[project.scripts]
+kirakira = "main:main"
+
+[tool.setuptools]
+py-modules = ["main"]
+packages = ["src"]

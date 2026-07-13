@@ -1,0 +1,2 @@
+[console_scripts]
+kirakira = main:main
