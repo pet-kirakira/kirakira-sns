@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Python 依存パッケージのセキュリティ更新
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Asia/Tokyo
+
+  # GitHub Actions で使用するアクションの更新
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Asia/Tokyo

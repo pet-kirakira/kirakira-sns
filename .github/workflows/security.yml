@@ -1,0 +1,50 @@
+name: セキュリティスキャン
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # 毎週月曜 09:00 JST (00:00 UTC)
+    - cron: "0 0 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    name: 依存パッケージの脆弱性スキャン (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: pip-audit をインストール
+        run: pip install pip-audit
+      - name: 既知の脆弱性をチェック
+        run: pip-audit -r requirements.txt
+
+  bandit:
+    name: Python 静的セキュリティ解析 (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Bandit をインストール
+        run: pip install bandit
+      - name: ソースコードをスキャン
+        run: bandit -r src main.py
+
+  gitleaks:
+    name: シークレット漏えい検出 (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # コミット履歴全体をスキャンするため全履歴を取得
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
