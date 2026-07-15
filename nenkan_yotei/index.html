@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>年間予定表（指定管理）</title>
+<style>
+  :root {
+    --line: #333;
+    --line-soft: #bbb;
+    --sun: #d23c3c;
+    --sat: #2f6fd0;
+    --sun-bg: #fdeaea;
+    --sat-bg: #eaf1fc;
+    --holiday-bg: #fbe3e3;
+    --event-bg: #fff6cc;      /* 予定が入った日の色 */
+    --event-bar: #f0a500;
+    --header-bg: #2c3e50;
+    --header-fg: #ffffff;
+    --invalid-bg: #f0f0f0;
+    --font: "Yu Gothic", "游ゴシック", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    font-family: var(--font);
+    margin: 0;
+    padding: 16px;
+    background: #e9ecef;
+    color: #1a1a1a;
+  }
+
+  /* ---- 画面操作用コントロール（印刷時は非表示） ---- */
+  .controls {
+    max-width: 1400px;
+    margin: 0 auto 14px;
+    background: #fff;
+    border: 1px solid #d0d0d0;
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; color: #555; font-weight: 600; }
+  .field input, .field select {
+    font-family: var(--font);
+    font-size: 14px;
+    padding: 6px 8px;
+    border: 1px solid #bbb;
+    border-radius: 5px;
+  }
+  .field input.facility { width: 260px; }
+  .spacer { flex: 1 1 auto; }
+  button {
+    font-family: var(--font);
+    font-size: 13px;
+    padding: 8px 14px;
+    border: none;
+    border-radius: 5px;
+    background: #2c3e50;
+    color: #fff;
+    cursor: pointer;
+  }
+  button.secondary { background: #6c7a89; }
+  button.danger { background: #b23b3b; }
+  button:hover { opacity: .9; }
+  .legend {
+    max-width: 1400px;
+    margin: 0 auto 14px;
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: #444;
+    align-items: center;
+  }
+  .legend .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .legend .swatch {
+    width: 16px; height: 16px; border: 1px solid #999; border-radius: 3px; display: inline-block;
+  }
+
+  /* ---- 予定表本体 ---- */
+  .sheet {
+    max-width: 1400px;
+    margin: 0 auto;
+    background: #fff;
+    padding: 14px 16px 20px;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  }
+  .sheet-title {
+    text-align: center;
+    margin: 0 0 4px;
+    font-size: 22px;
+    letter-spacing: 2px;
+  }
+  .sheet-sub {
+    text-align: center;
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: #555;
+  }
+
+  table.cal {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  table.cal th, table.cal td {
+    border: 1px solid var(--line-soft);
+    padding: 0;
+    vertical-align: top;
+  }
+  table.cal thead th {
+    background: var(--header-bg);
+    color: var(--header-fg);
+    font-size: 13px;
+    text-align: center;
+    padding: 6px 2px;
+    border-color: #1b2733;
+  }
+  th.day-col, td.day-col {
+    width: 34px;
+    text-align: center;
+    background: #f4f6f8;
+    font-size: 13px;
+    font-weight: 600;
+    vertical-align: middle;
+  }
+  td.day-col { padding: 2px 0; }
+
+  td.day-cell {
+    height: 30px;
+    position: relative;
+  }
+  td.day-cell .wd {
+    position: absolute;
+    top: 1px; left: 3px;
+    font-size: 10px;
+    color: #666;
+    pointer-events: none;
+    line-height: 1;
+  }
+  td.day-cell .hol {
+    position: absolute;
+    top: 1px; right: 3px;
+    font-size: 9px;
+    color: var(--sun);
+    max-width: 70%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    pointer-events: none;
+    line-height: 1;
+  }
+  td.day-cell .event {
+    display: block;
+    min-height: 30px;
+    padding: 12px 3px 2px;
+    font-size: 11px;
+    line-height: 1.25;
+    outline: none;
+    word-break: break-all;
+    white-space: pre-wrap;
+  }
+  td.day-cell .event:focus {
+    background: #eef7ff;
+    box-shadow: inset 0 0 0 2px #7fb3ff;
+  }
+
+  /* 曜日・祝日の色分け */
+  td.sun  { background: var(--sun-bg); }
+  td.sat  { background: var(--sat-bg); }
+  td.holiday { background: var(--holiday-bg); }
+  td.sun .wd, td.holiday .wd { color: var(--sun); font-weight: 700; }
+  td.sat .wd { color: var(--sat); font-weight: 700; }
+
+  /* 予定が入った日は色が変わる */
+  td.has-event { background: var(--event-bg); }
+  td.has-event::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: var(--event-bar);
+  }
+  /* 祝日 + 予定が重なった場合も予定色を優先しつつ左バーで明示 */
+  td.holiday.has-event, td.sun.has-event, td.sat.has-event {
+    background: var(--event-bg);
+  }
+
+  td.invalid {
+    background: var(--invalid-bg);
+    background-image: repeating-linear-gradient(
+      135deg, transparent, transparent 5px, #e2e2e2 5px, #e2e2e2 6px);
+  }
+  td.invalid .event { display: none; }
+
+  .footnote {
+    max-width: 1400px;
+    margin: 10px auto 0;
+    font-size: 11px;
+    color: #888;
+    text-align: right;
+  }
+
+  /* ================= 印刷（A3 横）================= */
+  @media print {
+    @page { size: A3 landscape; margin: 8mm; }
+    body {
+      background: #fff;
+      padding: 0;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .controls, .legend, .footnote { display: none !important; }
+    .sheet {
+      max-width: none;
+      box-shadow: none;
+      border-radius: 0;
+      padding: 0;
+      margin: 0;
+    }
+    .sheet-title { font-size: 20px; margin-bottom: 2px; }
+    .sheet-sub { font-size: 11px; margin-bottom: 8px; }
+    table.cal { height: 190mm; }
+    table.cal thead th { font-size: 11px; padding: 3px 1px; }
+    th.day-col, td.day-col { width: 22px; font-size: 11px; }
+    td.day-cell { height: auto; }
+    td.day-cell .event { min-height: 5.4mm; font-size: 9px; padding: 10px 2px 1px; }
+    td.day-cell .wd { font-size: 8px; }
+    td.day-cell .hol { font-size: 7px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <div class="field">
+    <label for="yearSelect">年度</label>
+    <select id="yearSelect"></select>
+  </div>
+  <div class="field">
+    <label for="facility">施設名 / 事業名</label>
+    <input id="facility" class="facility" type="text" placeholder="○○指定管理施設">
+  </div>
+  <div class="spacer"></div>
+  <button id="printBtn">🖨 A3で印刷</button>
+  <button id="exportBtn" class="secondary">⬇ 書き出し(JSON)</button>
+  <button id="importBtn" class="secondary">⬆ 読み込み(JSON)</button>
+  <button id="clearBtn" class="danger">この年度をクリア</button>
+  <input id="importFile" type="file" accept="application/json" style="display:none">
+</div>
+
+<div class="legend">
+  <span class="chip"><span class="swatch" style="background:var(--sun-bg)"></span>日曜</span>
+  <span class="chip"><span class="swatch" style="background:var(--sat-bg)"></span>土曜</span>
+  <span class="chip"><span class="swatch" style="background:var(--holiday-bg)"></span>祝日</span>
+  <span class="chip"><span class="swatch" style="background:var(--event-bg);border-left:4px solid var(--event-bar)"></span>予定あり</span>
+  <span class="chip">セルをクリックして予定を入力（自動保存）</span>
+</div>
+
+<div class="sheet">
+  <h1 class="sheet-title" id="sheetTitle">令和　年度　年間予定表</h1>
+  <p class="sheet-sub" id="sheetSub"></p>
+  <table class="cal">
+    <thead>
+      <tr id="headRow"></tr>
+    </thead>
+    <tbody id="calBody"></tbody>
+  </table>
+</div>
+
+<p class="footnote">指定管理 年間予定表 / データはこのブラウザ内に保存されます（JSONで書き出して共有・保管できます）。</p>
+
+<script>
+"use strict";
+
+// ===== 年度の並び（4月始まり） =====
+const FISCAL_MONTHS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3];
+const WD_JP = ["日", "月", "火", "水", "木", "金", "土"];
+
+// ===== 祝日計算（日本の国民の祝日） =====
+function nthMonday(year, month, n) {
+  const first = new Date(year, month - 1, 1).getDay(); // 0=日
+  const offset = (1 - first + 7) % 7;                  // 最初の月曜までの日数
+  return 1 + offset + (n - 1) * 7;
+}
+function vernalEquinox(year) {
+  return Math.floor(20.8431 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
+}
+function autumnalEquinox(year) {
+  return Math.floor(23.2488 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
+}
+function key(y, m, d) {
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+// 指定した暦年の祝日マップ { "YYYY-MM-DD": "名称" } を返す
+function holidaysForYear(year) {
+  const base = {};
+  const add = (m, d, name) => { base[key(year, m, d)] = name; };
+
+  add(1, 1, "元日");
+  add(1, nthMonday(year, 1, 2), "成人の日");
+  add(2, 11, "建国記念の日");
+  if (year >= 2020) add(2, 23, "天皇誕生日");
+  add(3, vernalEquinox(year), "春分の日");
+  add(4, 29, "昭和の日");
+  add(5, 3, "憲法記念日");
+  add(5, 4, "みどりの日");
+  add(5, 5, "こどもの日");
+  add(7, nthMonday(year, 7, 3), "海の日");
+  add(8, 11, "山の日");
+  add(9, nthMonday(year, 9, 3), "敬老の日");
+  add(9, autumnalEquinox(year), "秋分の日");
+  add(10, nthMonday(year, 10, 2), "スポーツの日");
+  add(11, 3, "文化の日");
+  add(11, 23, "勤労感謝の日");
+
+  // 国民の休日：祝日に挟まれた平日（例：シルバーウィーク）
+  const withKokumin = { ...base };
+  for (let m = 1; m <= 12; m++) {
+    const dim = new Date(year, m, 0).getDate();
+    for (let d = 1; d <= dim; d++) {
+      const cur = new Date(year, m - 1, d);
+      if (base[key(year, m, d)]) continue;
+      if (cur.getDay() === 0) continue; // 日曜は対象外
+      const prev = new Date(cur); prev.setDate(d - 1);
+      const next = new Date(cur); next.setDate(d + 1);
+      const pk = key(prev.getFullYear(), prev.getMonth() + 1, prev.getDate());
+      const nk = key(next.getFullYear(), next.getMonth() + 1, next.getDate());
+      if (base[pk] && base[nk]) withKokumin[key(year, m, d)] = "国民の休日";
+    }
+  }
+
+  // 振替休日：祝日が日曜のとき、直後の祝日でない日を休日に
+  const result = { ...withKokumin };
+  for (let m = 1; m <= 12; m++) {
+    const dim = new Date(year, m, 0).getDate();
+    for (let d = 1; d <= dim; d++) {
+      const k = key(year, m, d);
+      if (!withKokumin[k]) continue;
+      const dt = new Date(year, m - 1, d);
+      if (dt.getDay() !== 0) continue; // 日曜の祝日のみ
+      let cand = new Date(dt);
+      do { cand.setDate(cand.getDate() + 1); }
+      while (withKokumin[key(cand.getFullYear(), cand.getMonth() + 1, cand.getDate())]);
+      result[key(cand.getFullYear(), cand.getMonth() + 1, cand.getDate())] = "振替休日";
+    }
+  }
+  return result;
+}
+
+// 年度をまたぐので暦年2つ分をまとめる
+function holidaysForFiscalYear(fy) {
+  return { ...holidaysForYear(fy), ...holidaysForYear(fy + 1) };
+}
+
+// ===== データ保存 =====
+const STORE_PREFIX = "nenkan_yotei_";
+function loadYear(fy) {
+  try {
+    const raw = localStorage.getItem(STORE_PREFIX + fy);
+    return raw ? JSON.parse(raw) : { facility: "", events: {} };
+  } catch (_) {
+    return { facility: "", events: {} };
+  }
+}
+function saveYear(fy, data) {
+  localStorage.setItem(STORE_PREFIX + fy, JSON.stringify(data));
+}
+
+// ===== 状態 =====
+let fiscalYear;
+let data;          // { facility, events: { "YYYY-MM-DD": "予定" } }
+let holidays;
+
+const $ = (id) => document.getElementById(id);
+
+function reiwa(fy) {
+  const r = fy - 2018; // 令和元年 = 2019
+  return r === 1 ? "元" : String(r);
+}
+
+function render() {
+  holidays = holidaysForFiscalYear(fiscalYear);
+
+  $("sheetTitle").textContent = `令和${reiwa(fiscalYear)}年度　年間予定表`;
+  const facility = data.facility ? `【${data.facility}】　` : "";
+  $("sheetSub").textContent =
+    `${facility}${fiscalYear}年4月 〜 ${fiscalYear + 1}年3月`;
+  $("facility").value = data.facility || "";
+
+  // ヘッダー
+  const head = $("headRow");
+  head.innerHTML = '<th class="day-col">日</th>';
+  for (const m of FISCAL_MONTHS) {
+    const th = document.createElement("th");
+    th.textContent = `${m}月`;
+    head.appendChild(th);
+  }
+
+  // 本体（1〜31日 × 12ヶ月）
+  const body = $("calBody");
+  body.innerHTML = "";
+  for (let day = 1; day <= 31; day++) {
+    const tr = document.createElement("tr");
+    const dayCol = document.createElement("td");
+    dayCol.className = "day-col";
+    dayCol.textContent = day;
+    tr.appendChild(dayCol);
+
+    for (const m of FISCAL_MONTHS) {
+      const calYear = m >= 4 ? fiscalYear : fiscalYear + 1;
+      const td = document.createElement("td");
+      const dt = new Date(calYear, m - 1, day);
+
+      // その月に存在しない日（例：4月31日）は無効セル
+      if (dt.getMonth() !== m - 1) {
+        td.className = "invalid";
+        tr.appendChild(td);
+        continue;
+      }
+
+      const k = key(calYear, m, day);
+      const wd = dt.getDay();
+      const holName = holidays[k];
+
+      td.className = "day-cell";
+      if (holName) td.classList.add("holiday");
+      else if (wd === 0) td.classList.add("sun");
+      else if (wd === 6) td.classList.add("sat");
+      td.dataset.date = k;
+
+      const wdEl = document.createElement("div");
+      wdEl.className = "wd";
+      wdEl.textContent = WD_JP[wd];
+      td.appendChild(wdEl);
+
+      if (holName) {
+        const hol = document.createElement("div");
+        hol.className = "hol";
+        hol.textContent = holName;
+        hol.title = holName;
+        td.appendChild(hol);
+      }
+
+      const ev = document.createElement("div");
+      ev.className = "event";
+      ev.contentEditable = "true";
+      ev.spellcheck = false;
+      ev.textContent = data.events[k] || "";
+      if (data.events[k]) td.classList.add("has-event");
+
+      ev.addEventListener("input", () => {
+        const text = ev.textContent.replace(/ /g, " ");
+        if (text.trim()) {
+          data.events[k] = text;
+          td.classList.add("has-event");
+        } else {
+          delete data.events[k];
+          td.classList.remove("has-event");
+        }
+        saveYear(fiscalYear, data);
+      });
+
+      td.appendChild(ev);
+      tr.appendChild(td);
+    }
+    body.appendChild(tr);
+  }
+}
+
+function buildYearOptions() {
+  const now = new Date();
+  const currentFy = now.getMonth() + 1 >= 4 ? now.getFullYear() : now.getFullYear() - 1;
+  const sel = $("yearSelect");
+  sel.innerHTML = "";
+  for (let y = currentFy - 3; y <= currentFy + 5; y++) {
+    const opt = document.createElement("option");
+    opt.value = y;
+    opt.textContent = `令和${reiwa(y)}年度（${y}）`;
+    sel.appendChild(opt);
+  }
+  sel.value = currentFy;
+  return currentFy;
+}
+
+function switchYear(fy) {
+  fiscalYear = fy;
+  data = loadYear(fy);
+  $("yearSelect").value = fy;
+  render();
+}
+
+// ===== イベント =====
+$("yearSelect").addEventListener("change", (e) => switchYear(Number(e.target.value)));
+
+$("facility").addEventListener("input", (e) => {
+  data.facility = e.target.value;
+  saveYear(fiscalYear, data);
+  const f = data.facility ? `【${data.facility}】　` : "";
+  $("sheetSub").textContent = `${f}${fiscalYear}年4月 〜 ${fiscalYear + 1}年3月`;
+});
+
+$("printBtn").addEventListener("click", () => window.print());
+
+$("clearBtn").addEventListener("click", () => {
+  if (confirm(`令和${reiwa(fiscalYear)}年度（${fiscalYear}）の予定をすべて消去します。よろしいですか？`)) {
+    data = { facility: data.facility, events: {} };
+    saveYear(fiscalYear, data);
+    render();
+  }
+});
+
+$("exportBtn").addEventListener("click", () => {
+  const payload = { fiscalYear, ...data };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `nenkan_yotei_${fiscalYear}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+$("importBtn").addEventListener("click", () => $("importFile").click());
+$("importFile").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const obj = JSON.parse(reader.result);
+      const fy = Number(obj.fiscalYear);
+      if (!fy || !obj.events) throw new Error("形式が不正です");
+      const target = { facility: obj.facility || "", events: obj.events };
+      saveYear(fy, target);
+      // 選択肢に無ければ追加
+      if (![...$("yearSelect").options].some((o) => Number(o.value) === fy)) {
+        const opt = document.createElement("option");
+        opt.value = fy;
+        opt.textContent = `令和${reiwa(fy)}年度（${fy}）`;
+        $("yearSelect").appendChild(opt);
+      }
+      switchYear(fy);
+      alert(`令和${reiwa(fy)}年度のデータを読み込みました。`);
+    } catch (err) {
+      alert("読み込みに失敗しました：" + err.message);
+    }
+    e.target.value = "";
+  };
+  reader.readAsText(file, "utf-8");
+});
+
+// ===== 初期化 =====
+switchYear(buildYearOptions());
+</script>
+</body>
+</html>
